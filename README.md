@@ -34,3 +34,50 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Project Setup
+
+1. Copy environment file:
+
+```bash
+cp .env.example .env
+```
+
+2. Install dependencies:
+
+```bash
+npm ci
+```
+
+3. Database (Prisma):
+
+```bash
+npx prisma generate
+# and when you have a database ready
+npx prisma migrate dev --name init
+```
+
+4. Start dev server:
+
+```bash
+npm run dev
+```
+
+## Environment Variables
+
+- `DATABASE_URL` Postgres connection string
+- `NEXTAUTH_SECRET` NextAuth secret
+- `NEXTAUTH_URL` App URL (e.g., http://localhost:3000)
+
+See `.env.example` for a template.
+
+## Scripts
+
+- `npm run dev` start development server
+- `npm run build` build the app
+- `npm start` run production server
+- `npm run lint` run ESLint
+
+## CI
+
+GitHub Actions workflow builds the project on pushes and PRs to `main`.
