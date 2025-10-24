@@ -1,5 +1,6 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type SelectOption = { value: any; label: string };
 
@@ -24,6 +25,8 @@ export default function CustomSelect({
 }: Props) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => String(o.value) === String(value))?.label || placeholder;
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -34,6 +37,23 @@ export default function CustomSelect({
     return () => document.removeEventListener("click", onDoc);
   }, [rootId]);
 
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const el = btnRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setPos({ top: r.bottom, left: r.left, width: r.width });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open]);
+
   return (
     <div className="relative" data-select-root={rootId}>
       <button
@@ -42,6 +62,7 @@ export default function CustomSelect({
           buttonClassName ||
           "mt-1 w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white text-left text-gray-900 focus:outline-none focus:ring-[var(--admin-sidebar-bg)] focus:border-[var(--admin-sidebar-bg)] sm:text-sm flex items-center justify-between"
         }
+        ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -51,32 +72,35 @@ export default function CustomSelect({
           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clipRule="evenodd" />
         </svg>
       </button>
-      {open && (
-        <ul
-          className={
-            listClassName ||
-            "absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto"
-          }
-          role="listbox"
-        >
-          {options.map((opt) => (
-            <li
-              key={String(opt.value)}
-              role="option"
-              aria-selected={String(opt.value) === String(value)}
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 ${
-                String(opt.value) === String(value) ? "bg-blue-50 text-gray-900" : "text-gray-800"
-              }`}
-              onClick={() => {
-                onChange(opt.value);
-                setOpen(false);
-              }}
-            >
-              {opt.label}
-            </li>
-          ))}
-        </ul>
-      )}
+      {open && typeof window !== "undefined" &&
+        createPortal(
+          <ul
+            className={
+              listClassName ||
+              "z-50 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto"
+            }
+            role="listbox"
+            style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, marginTop: 4 }}
+          >
+            {options.map((opt) => (
+              <li
+                key={String(opt.value)}
+                role="option"
+                aria-selected={String(opt.value) === String(value)}
+                className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 ${
+                  String(opt.value) === String(value) ? "bg-blue-50 text-gray-900" : "text-gray-800"
+                }`}
+                onClick={() => {
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+              >
+                {opt.label}
+              </li>
+            ))}
+          </ul>,
+          document.body
+        )}
     </div>
   );
 }
