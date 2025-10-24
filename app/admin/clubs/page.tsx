@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useToast } from '@/app/admin/components/ToastProvider';
 import ClubSheet, { type ClubForm } from './components/ClubSheet';
+import CustomSelect from '@/app/admin/components/CustomSelect';
 
 export default function ClubsPage() {
   const { showToast } = useToast();
@@ -17,6 +18,9 @@ export default function ClubsPage() {
   const [dragOverClubId, setDragOverClubId] = useState<string | 'none' | null>(null);
   const [filterClubId, setFilterClubId] = useState<string>('all');
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [batchTarget, setBatchTarget] = useState<string>('none');
+  const [clubGirlsSheetFor, setClubGirlsSheetFor] = useState<any | null>(null);
+  const [editClubId, setEditClubId] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -183,6 +187,7 @@ export default function ClubsPage() {
                   <button 
                     className="p-2 rounded-md bg-[var(--admin-sidebar-bg)] text-white hover:bg-[var(--admin-sidebar-hover)] transition-colors duration-200 shadow-sm"
                     title="Bearbeiten"
+                    onClick={() => setEditClubId(club.id)}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                       <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -194,6 +199,16 @@ export default function ClubsPage() {
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                  <button
+                    className="p-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors duration-200 shadow-sm"
+                    title="Zugeordnete Girls"
+                    onClick={() => setClubGirlsSheetFor(club)}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M13 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path fillRule="evenodd" d="M4 14a4 4 0 014-4h4a4 4 0 014 4v2H4v-2z" clipRule="evenodd" />
                     </svg>
                   </button>
                 </div>
@@ -213,31 +228,36 @@ export default function ClubsPage() {
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-4">
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-700">Filter:</label>
-            <select
-              value={filterClubId}
-              onChange={(e) => setFilterClubId(e.target.value)}
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm bg-white"
-            >
-              <option value="all">Alle</option>
-              <option value="none">Ohne Club</option>
-              {items.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <div className="min-w-[180px]">
+              <CustomSelect
+                value={filterClubId}
+                onChange={(v) => setFilterClubId(String(v))}
+                options={[
+                  { value: 'all', label: 'Alle' },
+                  { value: 'none', label: 'Ohne Club' },
+                  ...items.map((c: any) => ({ value: c.id, label: c.name })),
+                ]}
+                rootId="filter-club"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <select id="batchTarget" className="border border-gray-300 rounded-md px-2 py-1 text-sm bg-white">
-              <option value="none">Ohne Club</option>
-              {items.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <div className="min-w-[180px]">
+              <CustomSelect
+                value={batchTarget}
+                onChange={(v) => setBatchTarget(String(v))}
+                options={[
+                  { value: 'none', label: 'Ohne Club' },
+                  ...items.map((c: any) => ({ value: c.id, label: c.name })),
+                ]}
+                rootId="batch-target"
+              />
+            </div>
             <button
               className="bg-[var(--admin-sidebar-bg)] hover:bg-[var(--admin-sidebar-hover)] text-white px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
               disabled={!Object.values(selected).some(Boolean)}
               onClick={() => {
-                const el = document.getElementById('batchTarget') as HTMLSelectElement | null;
-                const val = el?.value || 'none';
+                const val = batchTarget || 'none';
                 const clubId = val === 'none' ? null : val;
                 const ids = Object.entries(selected).filter(([, v]) => v).map(([k]) => k);
                 assignMany(ids, clubId);
@@ -335,6 +355,86 @@ export default function ClubsPage() {
       </div>
 
       <ClubSheet open={isSheetOpen} onClose={() => setIsSheetOpen(false)} onCreated={handleCreated} />
+      <ClubSheet
+        open={Boolean(editClubId)}
+        onClose={() => setEditClubId(null)}
+        onCreated={() => {}}
+        mode="edit"
+        clubId={editClubId || undefined}
+        onUpdated={() => {
+          setEditClubId(null);
+          load();
+        }}
+      />
+      {clubGirlsSheetFor && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setClubGirlsSheetFor(null)} />
+          <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-xl border-l border-gray-200 flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Zugeordnete Girls</h3>
+                <p className="text-sm text-gray-600">{clubGirlsSheetFor?.name}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                {clubGirlsSheetFor?.logoPath ? (
+                  <img src={clubGirlsSheetFor.logoPath} alt={clubGirlsSheetFor?.name} className="h-10 w-10 object-contain rounded bg-gray-50 border border-gray-200" />
+                ) : (
+                  <div className="h-10 w-10 flex items-center justify-center text-xs text-gray-400 bg-gray-100 rounded border border-gray-200">Kein Logo</div>
+                )}
+                <button className="p-2 rounded-md hover:bg-gray-100" onClick={() => setClubGirlsSheetFor(null)} aria-label="Schließen">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-auto">
+              {girls.filter((g) => g.clubId === clubGirlsSheetFor.id).length === 0 ? (
+                <div className="text-sm text-gray-600">Keine Girls zugeordnet.</div>
+              ) : (
+                <ul className="space-y-3">
+                  {girls.filter((g) => g.clubId === clubGirlsSheetFor.id).map((g) => (
+                    <li key={g.id} className="flex items-center gap-3">
+                      <div className="h-10 w-10 bg-gray-100 rounded overflow-hidden flex items-center justify-center">
+                        {(() => {
+                          const galleryVal = (g.values || []).find((v: any) => Array.isArray(v.value) && v.value.length && typeof v.value[0] === 'object' && 'url' in v.value[0]);
+                          let url: string | null = null;
+                          if (galleryVal) {
+                            const arr = galleryVal.value as any[];
+                            const cover = arr.find((it) => it && typeof it === 'object' && it.cover && it.url);
+                            url = (cover?.url as string) || (arr[0]?.url ?? null);
+                          }
+                          return url ? (
+                            <img src={url} alt="thumb" className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="text-gray-400 text-xs">Kein Bild</span>
+                          );
+                        })()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 truncate">
+                          {(() => {
+                            const getValue = (slugs: string[], fallback: any = '') => {
+                              for (const s of slugs) {
+                                const v = (g.values || []).find((x: any) => x.fieldSlug === s);
+                                if (v) return v.value;
+                              }
+                              return fallback;
+                            };
+                            return String(getValue(['name','vorname','titel'], g.id));
+                          })()}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate">{g.id}</div>
+                      </div>
+                      <a href={`/admin/girls/${g.id}`} className="text-[var(--admin-sidebar-bg)] text-sm hover:underline">Öffnen</a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

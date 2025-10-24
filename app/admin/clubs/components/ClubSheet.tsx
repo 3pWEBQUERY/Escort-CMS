@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useToast } from '@/app/admin/components/ToastProvider';
 
 type DayHours = { open: string; close: string; closed: boolean };
@@ -31,10 +31,16 @@ export default function ClubSheet({
   open,
   onClose,
   onCreated,
+  mode = 'create',
+  clubId,
+  onUpdated,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (data: ClubForm) => void;
+  mode?: 'create' | 'edit';
+  clubId?: string | null;
+  onUpdated?: (data: any) => void;
 }) {
   const { showToast } = useToast();
   const [form, setForm] = useState<ClubForm>({
@@ -63,6 +69,49 @@ export default function ClubSheet({
       Sonntag:  { open: '', close: '', closed: false },
     },
   });
+
+  const [existingLogoPath, setExistingLogoPath] = useState<string | null>(null);
+  const [existingWatermarkPath, setExistingWatermarkPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadClub = async () => {
+      if (!open || mode !== 'edit' || !clubId) return;
+      try {
+        const res = await fetch(`/api/clubs/${clubId}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Konnte Club nicht laden');
+        const c = await res.json();
+        setForm((prev) => ({
+          ...prev,
+          name: c.name || '',
+          street: c.street || '',
+          houseNumber: c.houseNumber || '',
+          zipAndCity: c.zipAndCity || '',
+          clubPhone: c.clubPhone || '',
+          clubMobile: c.clubMobile || '',
+          clubMobileWhatsApp: !!c.clubMobileWhatsApp,
+          clubEmail: c.clubEmail || '',
+          jobPhone: c.jobPhone || '',
+          jobMobile: c.jobMobile || '',
+          jobMobileWhatsApp: !!c.jobMobileWhatsApp,
+          jobEmail: c.jobEmail || '',
+          jobContactPerson: c.jobContactPerson || '',
+          openingHours: c.openingHours || prev.openingHours,
+          logo: null,
+          watermark: null,
+        }));
+        setExistingLogoPath(c.logoPath || null);
+        setExistingWatermarkPath(c.watermarkPath || null);
+      } catch (e: any) {
+        showToast({ variant: 'error', title: 'Fehler', message: e?.message || 'Laden fehlgeschlagen' });
+      }
+    };
+    loadClub();
+    // reset when closing
+    if (!open && mode === 'edit') {
+      setExistingLogoPath(null);
+      setExistingWatermarkPath(null);
+    }
+  }, [open, mode, clubId, showToast]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const target = e.target;
@@ -116,6 +165,14 @@ export default function ClubSheet({
         watermarkPath = data.url;
       }
 
+      // If not uploaded, keep existing when editing
+      if (!form.logo && mode === 'edit') {
+        logoPath = existingLogoPath;
+      }
+      if (!form.watermark && mode === 'edit') {
+        watermarkPath = existingWatermarkPath;
+      }
+
       // 2) Persist club
       const payload = {
         name: form.name,
@@ -135,15 +192,28 @@ export default function ClubSheet({
         jobContactPerson: form.jobContactPerson || null,
         openingHours: form.openingHours,
       };
-      const resClub = await fetch('/api/clubs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!resClub.ok) throw new Error('Speichern fehlgeschlagen');
-      const saved = await resClub.json();
-      showToast({ variant: 'success', title: 'Gespeichert', message: `Club "${saved.name}" erstellt.` });
-      onCreated(saved);
+      let saved: any = null;
+      if (mode === 'edit' && clubId) {
+        const resClub = await fetch(`/api/clubs/${clubId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resClub.ok) throw new Error('Speichern fehlgeschlagen');
+        saved = await resClub.json();
+        showToast({ variant: 'success', title: 'Gespeichert', message: `Club "${saved.name}" aktualisiert.` });
+        onUpdated?.(saved);
+      } else {
+        const resClub = await fetch('/api/clubs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resClub.ok) throw new Error('Speichern fehlgeschlagen');
+        saved = await resClub.json();
+        showToast({ variant: 'success', title: 'Gespeichert', message: `Club "${saved.name}" erstellt.` });
+        onCreated(saved);
+      }
       // reset form
       setForm({
         name: '', street: '', houseNumber: '', zipAndCity: '', logo: null, watermark: null,
@@ -159,6 +229,8 @@ export default function ClubSheet({
           Sonntag:  { open: '', close: '', closed: false },
         },
       });
+      setExistingLogoPath(null);
+      setExistingWatermarkPath(null);
     } catch (e: any) {
       showToast({ variant: 'error', title: 'Fehler', message: e?.message || 'Speichern fehlgeschlagen' });
     } finally {
@@ -221,7 +293,7 @@ export default function ClubSheet({
             <div className="flex-1 overflow-y-auto">
               <div className="px-4 py-6 sm:px-6">
                 <div className="flex items-start justify-between">
-                  <h3 className="text-lg leading-6 font-semibold tracking-tight text-gray-900">Neuen Club erstellen</h3>
+                  <h3 className="text-lg leading-6 font-semibold tracking-tight text-gray-900">{mode === 'edit' ? 'Club bearbeiten' : 'Neuen Club erstellen'}</h3>
                   <button
                     type="button"
                     className="ml-3 h-7 w-7 flex items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-[var(--admin-sidebar-bg)]"
@@ -485,6 +557,15 @@ export default function ClubSheet({
                         onChange={(e) => handleFileChange(e, 'logo')}
                         className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[var(--admin-sidebar-bg)] file:text-white hover:file:bg-[var(--admin-sidebar-hover)]"
                       />
+                      {mode === 'edit' && existingLogoPath && (
+                        <div className="mt-2 flex items-center gap-3">
+                          <div className="h-16 w-16 rounded border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={existingLogoPath} alt="Logo" className="h-full w-full object-contain" />
+                          </div>
+                          <div className="text-xs text-gray-600">Gespeichertes Logo</div>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -496,6 +577,15 @@ export default function ClubSheet({
                         onChange={(e) => handleFileChange(e, 'watermark')}
                         className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[var(--admin-sidebar-bg)] file:text-white hover:file:bg-[var(--admin-sidebar-hover)]"
                       />
+                      {mode === 'edit' && existingWatermarkPath && (
+                        <div className="mt-2 flex items-center gap-3">
+                          <div className="h-16 w-16 rounded border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={existingWatermarkPath} alt="Wasserzeichen" className="h-full w-full object-contain" />
+                          </div>
+                          <div className="text-xs text-gray-600">Gespeichertes Wasserzeichen</div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </form>
@@ -515,7 +605,7 @@ export default function ClubSheet({
                 className={`ml-4 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white ${submitting ? 'bg-gray-400' : 'bg-[var(--admin-sidebar-bg)] hover:bg-[var(--admin-sidebar-hover)]'} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--admin-sidebar-bg)]`}
                 onClick={handleSubmit}
               >
-                {submitting ? 'Speichern…' : 'Erstellen'}
+                {submitting ? 'Speichern…' : mode === 'edit' ? 'Speichern' : 'Erstellen'}
               </button>
             </div>
           </div>
