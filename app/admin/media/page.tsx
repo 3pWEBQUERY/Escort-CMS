@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useToast } from '@/app/admin/components/ToastProvider';
 import MediaEditSheet, { type MediaItem } from './components/MediaEditSheet';
 import MediaUploadSheet from './components/MediaUploadSheet';
 import { useRouter, useSearchParams } from 'next/navigation';
 import CustomSelect from '@/app/admin/components/CustomSelect';
 
-export default function MediaPage() {
+function MediaPageInner() {
   const { showToast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -333,5 +333,13 @@ export default function MediaPage() {
         }}
       />
     </div>
+  );
+}
+
+export default function MediaPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-700">Laden…</div>}>
+      <MediaPageInner />
+    </Suspense>
   );
 }
