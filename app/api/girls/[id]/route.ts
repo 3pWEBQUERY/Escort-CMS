@@ -19,15 +19,26 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     const body = await req.json();
     const values: Record<string, any> = body?.values || {};
     const entries = Object.entries(values);
-    if (entries.length === 0) return NextResponse.json({ ok: true });
+    const hasClubUpdate = Object.prototype.hasOwnProperty.call(body, 'clubId');
 
     await prisma.$transaction(async (tx) => {
-      for (const [slug, value] of entries) {
-        const existing = await tx.girlFieldValue.findFirst({ where: { girlId: id, fieldSlug: slug } });
-        if (existing) {
-          await tx.girlFieldValue.update({ where: { id: existing.id }, data: { value } });
-        } else {
-          await tx.girlFieldValue.create({ data: { girlId: id, fieldSlug: slug, value } });
+      // Update club assignment if provided (including null to clear)
+      if (hasClubUpdate) {
+        const relationUpdate = body.clubId
+          ? { club: { connect: { id: String(body.clubId) } } }
+          : { club: { disconnect: true } };
+        await tx.girl.update({ where: { id }, data: relationUpdate });
+      }
+
+      // Update field values if provided
+      if (entries.length > 0) {
+        for (const [slug, value] of entries) {
+          const existing = await tx.girlFieldValue.findFirst({ where: { girlId: id, fieldSlug: slug } });
+          if (existing) {
+            await tx.girlFieldValue.update({ where: { id: existing.id }, data: { value } });
+          } else {
+            await tx.girlFieldValue.create({ data: { girlId: id, fieldSlug: slug, value } });
+          }
         }
       }
     });
@@ -48,6 +59,17 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
       await tx.girl.delete({ where: { id } });
     });
     return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'Bad Request' }, { status: 400 });
+  }
+}
+
+export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  try {
+    const girl = await prisma.girl.findUnique({ where: { id }, include: { values: true } });
+    if (!girl) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json(girl);
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Bad Request' }, { status: 400 });
   }

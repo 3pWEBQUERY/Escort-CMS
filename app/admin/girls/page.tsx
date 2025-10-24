@@ -30,9 +30,12 @@ export default function GirlsPage() {
   useEffect(() => { load(); }, []);
 
   const getThumb = (g: any): string | null => {
-    // Try to find any gallery-like value: array of objects with url
+    // Prefer cover image from any gallery-like value
     const galleryVal = (g.values || []).find((v: any) => Array.isArray(v.value) && v.value.length && typeof v.value[0] === 'object' && 'url' in v.value[0]);
-    return galleryVal ? galleryVal.value[0]?.url ?? null : null;
+    if (!galleryVal) return null;
+    const arr = galleryVal.value as any[];
+    const cover = arr.find((it) => it && typeof it === 'object' && it.cover && it.url);
+    return (cover?.url as string) || (arr[0]?.url ?? null);
   };
 
   const getValue = (g: any, slugs: string[], fallback: any = null) => {

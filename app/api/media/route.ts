@@ -18,9 +18,53 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
   const pageSize = Math.max(1, Math.min(200, parseInt(searchParams.get('pageSize') || '25', 10)));
+  const sort = (searchParams.get('sort') || 'name_asc').toLowerCase();
+  const q = (searchParams.get('q') || '').toLowerCase();
+  const type = (searchParams.get('type') || 'all').toLowerCase();
 
   const files = await fs.readdir(MEDIA_DIR).catch(() => [] as string[]);
-  const names = files.filter((f) => !f.startsWith('.')).sort((a, b) => a.localeCompare(b));
+  const baseAll = files.filter((f) => !f.startsWith('.'));
+  const isImageExt = (name: string) => /\.(png|jpg|jpeg|gif|webp|avif|svg)$/i.test(name);
+  const isVideoExt = (name: string) => /\.(mp4|webm|mov|avi|mkv|m4v)$/i.test(name);
+  const base =
+    type === 'image' ? baseAll.filter(isImageExt)
+    : type === 'video' ? baseAll.filter(isVideoExt)
+    : baseAll;
+  let names = base;
+
+  if (q) {
+    const fromFilename = new Set(base.filter((n) => n.toLowerCase().includes(q)));
+    const dbMatches = await prisma.media.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { title: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      select: { name: true },
+    });
+    const dbSet = new Set(dbMatches.map((m) => m.name));
+    names = base.filter((n) => fromFilename.has(n) || dbSet.has(n));
+  }
+  if (sort === 'name_desc') {
+    names = [...names].sort((a, b) => b.localeCompare(a));
+  } else if (sort === 'date_desc' || sort === 'date_asc') {
+    const stats = await Promise.all(
+      names.map(async (name) => {
+        try {
+          const s = await fs.stat(path.join(MEDIA_DIR, name));
+          return { name, mtimeMs: s.mtimeMs };
+        } catch {
+          return { name, mtimeMs: 0 };
+        }
+      })
+    );
+    stats.sort((a, b) => (sort === 'date_desc' ? b.mtimeMs - a.mtimeMs : a.mtimeMs - b.mtimeMs));
+    names = stats.map((s) => s.name);
+  } else {
+    // default name_asc
+    names = [...names].sort((a, b) => a.localeCompare(b));
+  }
   const total = names.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, totalPages);

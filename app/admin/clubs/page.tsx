@@ -10,6 +10,13 @@ export default function ClubsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [items, setItems] = useState<any[]>([]);
+  const [girls, setGirls] = useState<any[]>([]);
+  const [girlsLoading, setGirlsLoading] = useState(false);
+  const [girlsError, setGirlsError] = useState('');
+  const [draggingGirlId, setDraggingGirlId] = useState<string | null>(null);
+  const [dragOverClubId, setDragOverClubId] = useState<string | 'none' | null>(null);
+  const [filterClubId, setFilterClubId] = useState<string>('all');
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
 
   const load = async () => {
     try {
@@ -26,14 +33,77 @@ export default function ClubsPage() {
     }
   };
 
+  const assignMany = async (girlIds: string[], clubId: string | null) => {
+    if (!girlIds.length) return;
+    const prev = girls;
+    setGirls((gs) => gs.map((g) => (girlIds.includes(g.id) ? { ...g, clubId } : g)));
+    try {
+      await Promise.all(
+        girlIds.map((gid) =>
+          fetch(`/api/girls/${gid}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clubId }),
+          })
+        )
+      );
+      showToast({ variant: 'success', title: 'Gespeichert', message: 'Mehrere Zuweisungen aktualisiert.' });
+      setSelected({});
+    } catch (e: any) {
+      setGirls(prev);
+      showToast({ variant: 'error', title: 'Fehler', message: e?.message || 'Konnte nicht speichern' });
+    }
+  };
+
+  const clubNameById: Record<string, string> = Object.fromEntries(items.map((c) => [c.id, c.name]));
+  const filteredGirls = girls.filter((g) => {
+    if (filterClubId === 'all') return true;
+    if (filterClubId === 'none') return !g.clubId;
+    return g.clubId === filterClubId;
+  });
+
   useEffect(() => {
     load();
+    const loadGirls = async () => {
+      try {
+        setGirlsLoading(true);
+        setGirlsError('');
+        const res = await fetch('/api/girls', { cache: 'no-store' });
+        if (!res.ok) throw new Error('Konnte Girls nicht laden');
+        const data = await res.json();
+        setGirls(data.items || []);
+      } catch (e: any) {
+        setGirlsError(e?.message || 'Unbekannter Fehler');
+      } finally {
+        setGirlsLoading(false);
+      }
+    };
+    loadGirls();
   }, []);
 
   const handleCreated = (data: ClubForm) => {
     setIsSheetOpen(false);
     showToast({ variant: 'success', title: 'Erstellt', message: 'Club wurde erstellt.' });
     load();
+  };
+
+  const assignGirlToClub = async (girlId: string, clubId: string | null) => {
+    if (!girlId) return;
+    // optimistic update
+    const prev = girls;
+    setGirls((gs) => gs.map((g) => (g.id === girlId ? { ...g, clubId } : g)));
+    try {
+      const res = await fetch(`/api/girls/${girlId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clubId }),
+      });
+      if (!res.ok) throw new Error('Speichern fehlgeschlagen');
+      showToast({ variant: 'success', title: 'Gespeichert', message: 'Zuweisung aktualisiert.' });
+    } catch (e: any) {
+      setGirls(prev);
+      showToast({ variant: 'error', title: 'Fehler', message: e?.message || 'Konnte nicht speichern' });
+    }
   };
 
   return (
@@ -55,10 +125,46 @@ export default function ClubsPage() {
         <h2 className="text-lg font-semibold text-gray-900 tracking-tight mb-4">Ihre Clubs</h2>
         {loading && <p className="text-sm text-gray-600">Lade Clubs…</p>}
         {error && <p className="text-sm text-red-600">{error}</p>}
-        
+        {/* Ohne Club Dropzone */}
+        <div
+          className={`border ${dragOverClubId === 'none' ? 'ring-2 ring-[var(--admin-sidebar-bg)]' : 'border-gray-200'} rounded-xl overflow-hidden shadow-sm transition-all duration-300 p-4 mb-6 bg-gray-50`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+          }}
+          onDragEnter={() => setDragOverClubId('none')}
+          onDragLeave={() => setDragOverClubId((prev) => (prev === 'none' ? null : prev))}
+          onDrop={(e) => {
+            e.preventDefault();
+            const gid = e.dataTransfer.getData('text/plain') || draggingGirlId;
+            setDragOverClubId(null);
+            setDraggingGirlId(null);
+            if (gid) assignGirlToClub(gid, null);
+          }}
+        >
+          <div className="text-sm font-medium text-gray-800">Ohne Club</div>
+          <div className="text-xs text-gray-500">Ziehen Sie ein Girl hierhin, um die Zuweisung zu entfernen.</div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {items.map((club) => (
-            <div key={club.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+            <div
+              key={club.id}
+              className={`border ${dragOverClubId === club.id ? 'ring-2 ring-[var(--admin-sidebar-bg)]' : 'border-gray-200'} rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDragEnter={() => setDragOverClubId(club.id)}
+              onDragLeave={() => setDragOverClubId((prev) => (prev === club.id ? null : prev))}
+              onDrop={(e) => {
+                e.preventDefault();
+                const gid = e.dataTransfer.getData('text/plain') || draggingGirlId;
+                setDragOverClubId(null);
+                setDraggingGirlId(null);
+                if (gid) assignGirlToClub(gid, club.id);
+              }}
+            >
               <div className="bg-gray-100 h-40 flex items-center justify-center">
                 {club.logoPath ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -99,7 +205,135 @@ export default function ClubsPage() {
           )}
         </div>
       </div>
-      
+
+      <div className="bg-white/90 backdrop-blur rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 tracking-tight mb-4">Girls</h2>
+        {girlsLoading && <p className="text-sm text-gray-600">Lade Girls…</p>}
+        {girlsError && <p className="text-sm text-red-600">{girlsError}</p>}
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-700">Filter:</label>
+            <select
+              value={filterClubId}
+              onChange={(e) => setFilterClubId(e.target.value)}
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm bg-white"
+            >
+              <option value="all">Alle</option>
+              <option value="none">Ohne Club</option>
+              {items.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <select id="batchTarget" className="border border-gray-300 rounded-md px-2 py-1 text-sm bg-white">
+              <option value="none">Ohne Club</option>
+              {items.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <button
+              className="bg-[var(--admin-sidebar-bg)] hover:bg-[var(--admin-sidebar-hover)] text-white px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
+              disabled={!Object.values(selected).some(Boolean)}
+              onClick={() => {
+                const el = document.getElementById('batchTarget') as HTMLSelectElement | null;
+                const val = el?.value || 'none';
+                const clubId = val === 'none' ? null : val;
+                const ids = Object.entries(selected).filter(([, v]) => v).map(([k]) => k);
+                assignMany(ids, clubId);
+              }}
+            >
+              Zuweisen
+            </button>
+            <button
+              className="border border-gray-300 text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md text-sm"
+              onClick={() => setSelected({})}
+            >
+              Auswahl leeren
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {filteredGirls.map((g) => (
+            <div
+              key={g.id}
+              className={`border ${draggingGirlId === g.id ? 'opacity-70' : 'border-gray-200'} rounded-xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300`}
+              draggable
+              onDragStart={(e) => {
+                setDraggingGirlId(g.id);
+                e.dataTransfer.setData('text/plain', g.id);
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragEnd={() => {
+                setDraggingGirlId(null);
+                setDragOverClubId(null);
+              }}
+              title={g.clubId ? `Zugewiesen: ${clubNameById[g.clubId] || g.clubId}` : 'Ohne Club'}
+            >
+              <div className="bg-gray-100 h-48 flex items-center justify-center overflow-hidden">
+                {(() => {
+                  const galleryVal = (g.values || []).find((v: any) => Array.isArray(v.value) && v.value.length && typeof v.value[0] === 'object' && 'url' in v.value[0]);
+                  let url: string | null = null;
+                  if (galleryVal) {
+                    const arr = galleryVal.value as any[];
+                    const cover = arr.find((it) => it && typeof it === 'object' && it.cover && it.url);
+                    url = (cover?.url as string) || (arr[0]?.url ?? null);
+                  }
+                  return url ? (
+                    <img src={url} alt="thumb" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-gray-400 text-sm">Kein Bild</span>
+                  );
+                })()}
+              </div>
+              <div className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="text-base font-semibold text-gray-900 tracking-tight truncate">
+                    {(() => {
+                      const getValue = (slugs: string[], fallback: any = '') => {
+                        for (const s of slugs) {
+                          const v = (g.values || []).find((x: any) => x.fieldSlug === s);
+                          if (v) return v.value;
+                        }
+                        return fallback;
+                      };
+                      return String(getValue(['name','vorname','titel'], g.id));
+                    })()}
+                  </h3>
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-xs px-2 py-1 rounded-full ${g.clubId ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {g.clubId ? (clubNameById[g.clubId] || 'Zugewiesen') : 'Ohne Club'}
+                  </span>
+                  <label className="flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected[g.id])}
+                      onChange={(e) => setSelected((s) => ({ ...s, [g.id]: e.target.checked }))}
+                    />
+                    Auswählen
+                  </label>
+                </div>
+                <div className="flex space-x-2">
+                  <a
+                    href={`/admin/girls/${g.id}`}
+                    className="p-2 rounded-md bg-[var(--admin-sidebar-bg)] text-white hover:bg-[var(--admin-sidebar-hover)] transition-colors duration-200 shadow-sm"
+                    title="Bearbeiten"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                    </svg>
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))}
+          {(!girlsLoading && !girlsError && girls.length === 0) && (
+            <div className="col-span-4 text-sm text-gray-500">Noch keine Girls vorhanden.</div>
+          )}
+        </div>
+      </div>
+
       <ClubSheet open={isSheetOpen} onClose={() => setIsSheetOpen(false)} onCreated={handleCreated} />
     </div>
   );

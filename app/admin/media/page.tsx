@@ -5,6 +5,7 @@ import { useToast } from '@/app/admin/components/ToastProvider';
 import MediaEditSheet, { type MediaItem } from './components/MediaEditSheet';
 import MediaUploadSheet from './components/MediaUploadSheet';
 import { useRouter, useSearchParams } from 'next/navigation';
+import CustomSelect from '@/app/admin/components/CustomSelect';
 
 export default function MediaPage() {
   const { showToast } = useToast();
@@ -20,12 +21,22 @@ export default function MediaPage() {
   const pageSize = 25;
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [sort, setSort] = useState<'name_asc' | 'name_desc' | 'date_desc' | 'date_asc'>('name_asc');
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'image' | 'video'>('all');
 
-  const load = async (p = page) => {
+  const load = async (p = page, s = sort) => {
     try {
       setLoading(true);
       setError('');
-      const res = await fetch(`/api/media?page=${p}&pageSize=${pageSize}`, { cache: 'no-store' });
+      const params = new URLSearchParams();
+      params.set('page', String(p));
+      params.set('pageSize', String(pageSize));
+      params.set('sort', String(s));
+      if (search) params.set('q', search);
+      if (typeFilter && typeFilter !== 'all') params.set('type', typeFilter);
+      const res = await fetch(`/api/media?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Konnte Medien nicht laden');
       const data = await res.json();
       setItems(data.items || []);
@@ -40,22 +51,79 @@ export default function MediaPage() {
   };
 
   useEffect(() => {
-    // initialize page from query string if present
+    // initialize from URL or localStorage
     const p = parseInt(searchParams.get('page') || '1', 10);
-    const initPage = isNaN(p) || p < 1 ? 1 : p;
+    const urlPage = isNaN(p) || p < 1 ? 1 : p;
+    const urlSort = (searchParams.get('sort') || '') as any;
+    const qUrl = searchParams.get('q');
+    const tUrl = searchParams.get('type') as 'all' | 'image' | 'video' | null;
+
+    let initPage = urlPage;
+    let initSort: 'name_asc' | 'name_desc' | 'date_desc' | 'date_asc' = 'name_asc';
+    let initQ = '';
+    let initType: 'all' | 'image' | 'video' = 'all';
+
+    const validSorts = new Set(['name_asc','name_desc','date_desc','date_asc']);
+    const validTypes = new Set(['all','image','video']);
+
+    if (urlSort && validSorts.has(urlSort)) initSort = urlSort;
+    if (typeof qUrl === 'string') initQ = qUrl;
+    if (tUrl && validTypes.has(tUrl)) initType = tUrl;
+
+    // If URL lacks values, hydrate from localStorage
+    if ((!urlSort && !qUrl && !tUrl) && typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('media_filters');
+        if (raw) {
+          const parsed = JSON.parse(raw) as { sort?: string; q?: string; type?: 'all'|'image'|'video' };
+          if (parsed.sort && validSorts.has(parsed.sort)) initSort = parsed.sort as any;
+          if (typeof parsed.q === 'string') initQ = parsed.q;
+          if (parsed.type && validTypes.has(parsed.type)) initType = parsed.type;
+        }
+      } catch {}
+    }
+
     setPage(initPage);
-    load(initPage);
+    setSort(initSort);
+    setSearch(initQ);
+    setSearchInput(initQ);
+    setTypeFilter(initType);
+    load(initPage, initSort as any);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // debounce search input -> search
   useEffect(() => {
-    load(page);
+    const handle = setTimeout(() => {
+      setPage(1);
+      setSearch(searchInput);
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
+
+  useEffect(() => {
+    load(page, sort);
     // sync URL query
     const params = new URLSearchParams(Array.from(searchParams.entries()));
     params.set('page', String(page));
+    params.set('sort', String(sort));
+    if (search) params.set('q', search); else params.delete('q');
+    if (typeFilter && typeFilter !== 'all') params.set('type', typeFilter); else params.delete('type');
     router.replace(`?${params.toString()}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, sort, search, typeFilter]);
+
+  // persist filters to localStorage
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('media_filters', JSON.stringify({ sort, q: search, type: typeFilter }));
+      }
+    } catch {}
+  }, [sort, search, typeFilter]);
+
+  // server-side filtering handles search and type
 
   const onDelete = async (item: MediaItem) => {
     try {
@@ -89,7 +157,7 @@ export default function MediaPage() {
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gray-900">Medien</h1>
           <p className="text-sm text-gray-600">Verwalten Sie Ihre Mediendateien</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setUploadOpen(true)}
             className="bg-white text-gray-800 px-4 py-2 rounded-md border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors duration-200"
@@ -97,7 +165,7 @@ export default function MediaPage() {
             Hochladen
           </button>
           <button
-            onClick={() => load(page)}
+            onClick={() => load(page, sort)}
             className="bg-[var(--admin-sidebar-bg)] hover:bg-[var(--admin-sidebar-hover)] text-white px-4 py-2 rounded-md border border-white/10 shadow-sm transition-colors duration-200"
           >
             Aktualisieren
@@ -106,17 +174,104 @@ export default function MediaPage() {
       </div>
 
       <div className="bg-white/90 backdrop-blur rounded-xl border border-gray-200 shadow-sm p-6">
+        <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-1 gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Suche nach Titel oder Dateiname…"
+                className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white text-gray-900 text-sm focus:outline-none focus:ring-[var(--admin-sidebar-bg)] focus:border-[var(--admin-sidebar-bg)]"
+              />
+            </div>
+            <div className="w-40">
+              <CustomSelect
+                rootId="media-type"
+                value={typeFilter}
+                onChange={(v) => { setPage(1); setTypeFilter(v); }}
+                options={[
+                  { value: 'all', label: 'Alle Typen' },
+                  { value: 'image', label: 'Bilder' },
+                  { value: 'video', label: 'Video' },
+                ]}
+                buttonClassName="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white text-left text-gray-900 text-sm flex items-center justify-between"
+                listClassName="z-50 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto text-sm"
+              />
+            </div>
+          </div>
+          <div className="w-48">
+            <CustomSelect
+              rootId="media-sort"
+              value={sort}
+              onChange={(v) => { setPage(1); setSort(v); }}
+              options={[
+                { value: 'name_asc', label: 'Name (A→Z)' },
+                { value: 'name_desc', label: 'Name (Z→A)' },
+                { value: 'date_desc', label: 'Datum (Neu → Alt)' },
+                { value: 'date_asc', label: 'Datum (Alt → Neu)' },
+              ]}
+              buttonClassName="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white text-left text-gray-900 text-sm flex items-center justify-between"
+              listClassName="z-50 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto text-sm"
+            />
+          </div>
+        </div>
+        {(search || typeFilter !== 'all') && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+            {search && (
+              <button
+                onClick={() => { setPage(1); setSearch(''); setSearchInput(''); }}
+                className="inline-flex items-center gap-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 px-2 py-1 border border-gray-200"
+                aria-label="Suchfilter entfernen"
+              >
+                <span>Suche: “{search}”</span>
+                <span className="text-gray-500">✕</span>
+              </button>
+            )}
+            {typeFilter !== 'all' && (
+              <button
+                onClick={() => { setPage(1); setTypeFilter('all'); }}
+                className="inline-flex items-center gap-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 px-2 py-1 border border-gray-200"
+                aria-label="Typfilter entfernen"
+              >
+                <span>Typ: {typeFilter === 'image' ? 'Bilder' : 'Video'}</span>
+                <span className="text-gray-500">✕</span>
+              </button>
+            )}
+            <button
+              onClick={() => { setPage(1); setSearch(''); setSearchInput(''); setTypeFilter('all'); }}
+              className="ml-auto inline-flex items-center gap-1 rounded-md bg-white hover:bg-gray-50 text-gray-800 px-2 py-1 border border-gray-200"
+            >
+              Alle Filter löschen
+            </button>
+          </div>
+        )}
         {loading && <div className="text-sm text-gray-600">Lade Medien…</div>}
         {error && <div className="text-sm text-red-600 mb-3">{error}</div>}
         {!loading && items.length === 0 && (
-          <div className="text-sm text-gray-600">Keine Medien vorhanden.</div>
+          <div className="text-sm text-gray-600">
+            {(search || typeFilter !== 'all') ? 'Keine Treffer für die aktuellen Filter.' : 'Keine Medien vorhanden.'}
+          </div>
         )}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {items.map((item) => (
             <div key={item.name} className="border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all bg-white">
               <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.url} alt={item.alt || item.name} className="h-full w-full object-cover" />
+                {/\.(mp4|webm|mov|avi|mkv|m4v)$/i.test(item.name) ? (
+                  // eslint-disable-next-line jsx-a11y/media-has-caption
+                  <video
+                    src={item.url}
+                    className="h-full w-full object-cover"
+                    muted
+                    loop
+                    playsInline
+                    autoPlay
+                    aria-label={item.title || item.name}
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.url} alt={item.alt || item.name} className="h-full w-full object-cover" />
+                )}
               </div>
               <div className="p-3">
                 <div className="text-sm font-medium text-gray-900 truncate" title={item.title || item.name}>

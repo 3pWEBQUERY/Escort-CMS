@@ -26,7 +26,9 @@ export default function CustomSelect({
   const [open, setOpen] = useState(false);
   const current = options.find((o) => String(o.value) === String(value))?.label || placeholder;
   const btnRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -54,6 +56,16 @@ export default function CustomSelect({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (open) {
+      const idx = options.findIndex((o) => String(o.value) === String(value));
+      setFocusedIndex(idx >= 0 ? idx : 0);
+      setTimeout(() => listRef.current?.focus(), 0);
+    } else {
+      setFocusedIndex(-1);
+    }
+  }, [open, options, value]);
+
   return (
     <div className="relative" data-select-root={rootId}>
       <button
@@ -64,8 +76,15 @@ export default function CustomSelect({
         }
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? `${rootId}-listbox` : undefined}
       >
         <span>{current}</span>
         <svg className={`h-4 w-4 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor" aria-hidden>
@@ -79,20 +98,56 @@ export default function CustomSelect({
               listClassName ||
               "z-50 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto"
             }
+            id={`${rootId}-listbox`}
+            ref={listRef}
             role="listbox"
+            tabIndex={-1}
+            aria-activedescendant={focusedIndex >= 0 ? `${rootId}-option-${focusedIndex}` : undefined}
             style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, marginTop: 4 }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setOpen(false);
+                btnRef.current?.focus();
+              } else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setFocusedIndex((i) => Math.min(options.length - 1, (i < 0 ? 0 : i + 1)));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setFocusedIndex((i) => Math.max(0, (i < 0 ? 0 : i - 1)));
+              } else if (e.key === "Home") {
+                e.preventDefault();
+                setFocusedIndex(0);
+              } else if (e.key === "End") {
+                e.preventDefault();
+                setFocusedIndex(options.length - 1);
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                const idx = focusedIndex >= 0 ? focusedIndex : options.findIndex((o) => String(o.value) === String(value));
+                const opt = options[idx];
+                if (opt) {
+                  onChange(opt.value);
+                  setOpen(false);
+                  btnRef.current?.focus();
+                }
+              }
+            }}
           >
-            {options.map((opt) => (
+            {options.map((opt, idx) => (
               <li
                 key={String(opt.value)}
+                id={`${rootId}-option-${idx}`}
                 role="option"
                 aria-selected={String(opt.value) === String(value)}
                 className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 ${
-                  String(opt.value) === String(value) ? "bg-blue-50 text-gray-900" : "text-gray-800"
-                }`}
+                  idx === focusedIndex ? "bg-blue-50" : ""
+                } ${String(opt.value) === String(value) ? "text-gray-900" : "text-gray-800"}`}
+                onMouseEnter={() => setFocusedIndex(idx)}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onChange(opt.value);
                   setOpen(false);
+                  btnRef.current?.focus();
                 }}
               >
                 {opt.label}

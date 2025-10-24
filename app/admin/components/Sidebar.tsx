@@ -24,7 +24,8 @@ const manageNav: NavItem[] = [
     children: [
       { name: 'Girl verwalten', href: '/admin/girls' },
       { name: 'Girl erstellen', href: '/admin/girls/create' },
-      { name: 'Felder', href: '/admin/girls/fields' }
+      { name: 'Felder', href: '/admin/girls/fields' },
+      { name: 'Anwesenheit', href: '/admin/girls/attendance' }
     ]
   },
 ];
