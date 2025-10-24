@@ -10,6 +10,12 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  
+  /* Admin Dashboard Colors */
+  --admin-sidebar-bg: hsl(341.5 75.5% 30.4%);
+  --admin-sidebar-hover: hsl(341.5 75.5% 35.4%);
+  --admin-sidebar-active: hsl(341.5 75.5% 40.4%);
+  --admin-header-bg: hsl(240 10% 3.9%);
 }
 
 @media (prefers-color-scheme: dark) {
