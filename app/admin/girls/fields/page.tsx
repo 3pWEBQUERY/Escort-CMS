@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/app/admin/components/ToastProvider';
+import CustomSelect from '@/app/admin/components/CustomSelect';
 
 type GirlFieldType = 'SELECT' | 'SELECT_SEARCH' | 'MULTISELECT' | 'INPUT' | 'TEXTAREA' | 'NUMBER' | 'SECTION' | 'GALLERY';
 
@@ -55,6 +56,18 @@ export default function GirlsFieldsPage() {
     [form.type]
   );
 
+  // Options for type selects
+  const typeOptions: { value: GirlFieldType; label: string }[] = [
+    { value: 'INPUT', label: 'Eingabefeld' },
+    { value: 'TEXTAREA', label: 'Großes Textfeld' },
+    { value: 'NUMBER', label: 'Zahlenfeld' },
+    { value: 'SELECT', label: 'Select' },
+    { value: 'SELECT_SEARCH', label: 'Select mit Suche' },
+    { value: 'MULTISELECT', label: 'Select mehrfach' },
+    { value: 'SECTION', label: 'Feldtitel / Container' },
+    { value: 'GALLERY', label: 'Gallery (Bilder)' },
+  ];
+
   const load = async () => {
     try {
       setLoading(true);
@@ -68,6 +81,24 @@ export default function GirlsFieldsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const moveSection = async (id: string, dir: 'up' | 'down') => {
+    const copy = [...items];
+    const sections = copy.filter((x) => x.type === 'SECTION').sort((a, b) => a.order - b.order);
+    const si = sections.findIndex((x) => x.id === id);
+    const ti = dir === 'up' ? si - 1 : si + 1;
+    if (si < 0 || ti < 0 || ti >= sections.length) return;
+    const aId = sections[si].id;
+    const bId = sections[ti].id;
+    const ai = copy.findIndex((x) => x.id === aId);
+    const bi = copy.findIndex((x) => x.id === bId);
+    const ao = copy[ai].order;
+    const bo = copy[bi].order;
+    copy[ai] = { ...copy[ai], order: bo };
+    copy[bi] = { ...copy[bi], order: ao };
+    setItems(copy);
+    await saveOrder(copy);
   };
 
   useEffect(() => { load(); }, []);
@@ -125,10 +156,23 @@ export default function GirlsFieldsPage() {
     await saveOrder();
   };
 
-  const saveOrder = async () => {
+  const saveOrder = async (snapshot?: GirlField[]) => {
     try {
-      const payload = { items: items.map((it) => ({ id: it.id, order: it.order, parentId: it.parentId ?? null })) };
-      const res = await fetch('/api/girls/fields', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const source = snapshot ?? items;
+      // Normalize a contiguous global order based on current order values
+      const normalized = [...source]
+        .sort((a, b) => a.order - b.order)
+        .map((it, idx) => ({ ...it, order: idx }));
+      // Optimistically update local state to keep UI consistent
+      setItems(normalized);
+      const payload = {
+        items: normalized.map((it) => ({ id: it.id, order: it.order, parentId: it.parentId ?? null })),
+      };
+      const res = await fetch('/api/girls/fields', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
       if (!res.ok) throw new Error('Sortierung speichern fehlgeschlagen');
       showToast({ variant: 'success', title: 'Gespeichert', message: 'Reihenfolge aktualisiert.' });
     } catch (e: any) {
@@ -165,28 +209,26 @@ export default function GirlsFieldsPage() {
   };
 
   const moveChild = async (id: string, dir: 'up' | 'down') => {
-    setItems((prev) => {
-      const copy = [...prev];
-      const i = copy.findIndex((x) => x.id === id);
-      if (i === -1) return prev;
-      const parentId = copy[i].parentId ?? null;
-      const siblings = copy
-        .filter((x) => x.parentId === parentId && x.type !== 'SECTION')
-        .sort((a, b) => a.order - b.order);
-      const si = siblings.findIndex((x) => x.id === id);
-      const ti = dir === 'up' ? si - 1 : si + 1;
-      if (si < 0 || ti < 0 || ti >= siblings.length) return prev;
-      const aId = siblings[si].id;
-      const bId = siblings[ti].id;
-      const ai = copy.findIndex((x) => x.id === aId);
-      const bi = copy.findIndex((x) => x.id === bId);
-      const ao = copy[ai].order;
-      const bo = copy[bi].order;
-      copy[ai] = { ...copy[ai], order: bo };
-      copy[bi] = { ...copy[bi], order: ao };
-      return copy;
-    });
-    await saveOrder();
+    const copy = [...items];
+    const i = copy.findIndex((x) => x.id === id);
+    if (i === -1) return;
+    const parentId = copy[i].parentId ?? null;
+    const siblings = copy
+      .filter((x) => x.parentId === parentId && x.type !== 'SECTION')
+      .sort((a, b) => a.order - b.order);
+    const si = siblings.findIndex((x) => x.id === id);
+    const ti = dir === 'up' ? si - 1 : si + 1;
+    if (si < 0 || ti < 0 || ti >= siblings.length) return;
+    const aId = siblings[si].id;
+    const bId = siblings[ti].id;
+    const ai = copy.findIndex((x) => x.id === aId);
+    const bi = copy.findIndex((x) => x.id === bId);
+    const ao = copy[ai].order;
+    const bo = copy[bi].order;
+    copy[ai] = { ...copy[ai], order: bo };
+    copy[bi] = { ...copy[bi], order: ao };
+    setItems(copy);
+    await saveOrder(copy);
   };
 
   const onDelete = async (id: string) => {
@@ -293,33 +335,21 @@ export default function GirlsFieldsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Typ</label>
-            <select
-              value={form.type as GirlFieldType}
-              onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as GirlFieldType }))}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white text-gray-900 focus:outline-none focus:ring-[var(--admin-sidebar-bg)] focus:border-[var(--admin-sidebar-bg)] sm:text-sm"
-            >
-              <option value="INPUT">Eingabefeld</option>
-              <option value="TEXTAREA">Großes Textfeld</option>
-              <option value="NUMBER">Zahlenfeld</option>
-              <option value="SELECT">Select</option>
-              <option value="SELECT_SEARCH">Select mit Suche</option>
-              <option value="MULTISELECT">Select mehrfach</option>
-              <option value="SECTION">Feldtitel / Container</option>
-              <option value="GALLERY">Gallery (Bilder)</option>
-            </select>
+            <CustomSelect
+              value={(form.type as GirlFieldType) || 'INPUT'}
+              onChange={(v) => setForm((f) => ({ ...f, type: v }))}
+              options={typeOptions}
+            />
           </div>
           {form.type === 'SECTION' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Spalten im Container</label>
-              <select
+              <CustomSelect
+                rootId="container-columns-create"
                 value={Number(form.containerColumns || 1)}
-                onChange={(e) => setForm((f) => ({ ...f, containerColumns: Number(e.target.value) }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white text-gray-900 focus:outline-none focus:ring-[var(--admin-sidebar-bg)] focus:border-[var(--admin-sidebar-bg)] sm:text-sm"
-              >
-                <option value={1}>1</option>
-                <option value={2}>2</option>
-                <option value={3}>3</option>
-              </select>
+                onChange={(v) => setForm((f) => ({ ...f, containerColumns: Number(v) }))}
+                options={[1,2,3].map((n) => ({ value: n, label: String(n) }))}
+              />
             </div>
           )}
           {form.type !== 'SECTION' && (
@@ -427,14 +457,12 @@ export default function GirlsFieldsPage() {
                     </div>
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">Typ</label>
-                      <select className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white text-gray-900" value={editForm.type as GirlFieldType} onChange={(e) => setEditForm((f) => ({ ...f, type: e.target.value as GirlFieldType }))}>
-                        <option value="INPUT">Eingabefeld</option>
-                        <option value="TEXTAREA">Großes Textfeld</option>
-                        <option value="NUMBER">Zahlenfeld</option>
-                        <option value="SELECT">Select</option>
-                        <option value="SELECT_SEARCH">Select mit Suche</option>
-                        <option value="MULTISELECT">Select mehrfach</option>
-                      </select>
+                      <CustomSelect
+                        rootId={`edit-type-top-${it.id}`}
+                        value={(editForm.type as GirlFieldType) || 'INPUT'}
+                        onChange={(v) => setEditForm((f) => ({ ...f, type: v as GirlFieldType }))}
+                        options={typeOptions.filter(o => o.value !== 'SECTION')}
+                      />
                     </div>
                     <div className="flex items-center gap-2">
                       <input id={`req-${it.id}`} type="checkbox" checked={!!editForm.required} onChange={(e) => setEditForm((f) => ({ ...f, required: e.target.checked }))} className="h-4 w-4 rounded border-gray-300 text-[var(--admin-sidebar-bg)] focus:ring-[var(--admin-sidebar-bg)]" />
@@ -509,7 +537,7 @@ export default function GirlsFieldsPage() {
           {items
             .filter((f) => f.type === 'SECTION')
             .sort((a, b) => a.order - b.order)
-            .map((section) => (
+            .map((section, sidx, arr) => (
               <div
                 key={`section-${section.id}`}
                 draggable
@@ -531,18 +559,37 @@ export default function GirlsFieldsPage() {
                 <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 text-sm font-medium text-gray-900 flex items-center gap-3">
                   <span className="cursor-grab select-none text-gray-400" title="Ziehen">⋮⋮</span>
                   {section.name}
-                  <span className="ml-auto text-xs text-gray-600">Spalten:</span>
-                  <select
-                    className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-800"
-                    value={Number(section.containerColumns || 1)}
-                    onChange={async (e) => {
-                      await onUpdate(section.id, { containerColumns: Number(e.target.value) } as any);
-                    }}
-                  >
-                    <option value={1}>1</option>
-                    <option value={2}>2</option>
-                    <option value={3}>3</option>
-                  </select>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                      onClick={() => moveSection(section.id, 'up')}
+                      disabled={sidx === 0}
+                      title="Container nach oben"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      className="px-2 py-1 rounded-md text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                      onClick={() => moveSection(section.id, 'down')}
+                      disabled={sidx === (arr?.length ?? 1) - 1}
+                      title="Container nach unten"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <span className="text-xs text-gray-600">Spalten:</span>
+                  <div className="min-w-[120px]">
+                    <CustomSelect
+                      rootId={`section-columns-${section.id}`}
+                      value={Number(section.containerColumns || 1)}
+                      onChange={async (v) => {
+                        await onUpdate(section.id, { containerColumns: Number(v) } as any);
+                      }}
+                      options={[1,2,3].map((n) => ({ value: n, label: String(n) }))}
+                      buttonClassName="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-800 flex items-center justify-between w-full"
+                      listClassName="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto text-xs"
+                    />
+                  </div>
                 </div>
                 <div className={`p-3 grid gap-3 ${Number(section.containerColumns || 1) === 1 ? 'grid-cols-1' : Number(section.containerColumns || 1) === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3'}`}>
                   {items
@@ -586,15 +633,12 @@ export default function GirlsFieldsPage() {
                               </div>
                               <div>
                                 <label className="block text-xs text-gray-700 mb-1">Typ</label>
-                                <select className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white text-gray-900" value={editForm.type as GirlFieldType} onChange={(e) => setEditForm((f) => ({ ...f, type: e.target.value as GirlFieldType }))}>
-                                  <option value="INPUT">Eingabefeld</option>
-                                  <option value="TEXTAREA">Großes Textfeld</option>
-                                  <option value="NUMBER">Zahlenfeld</option>
-                                  <option value="SELECT">Select</option>
-                                  <option value="SELECT_SEARCH">Select mit Suche</option>
-                                  <option value="MULTISELECT">Select mehrfach</option>
-                                  <option value="SECTION">Feldtitel / Container</option>
-                                </select>
+                                <CustomSelect
+                                  rootId={`edit-type-child-${it.id}`}
+                                  value={(editForm.type as GirlFieldType) || 'INPUT'}
+                                  onChange={(v) => setEditForm((f) => ({ ...f, type: v as GirlFieldType }))}
+                                  options={typeOptions}
+                                />
                               </div>
                               <div className="flex items-center gap-2">
                                 <input id={`req-${it.id}`} type="checkbox" checked={!!editForm.required} onChange={(e) => setEditForm((f) => ({ ...f, required: e.target.checked }))} className="h-4 w-4 rounded border-gray-300 text-[var(--admin-sidebar-bg)] focus:ring-[var(--admin-sidebar-bg)]" />
